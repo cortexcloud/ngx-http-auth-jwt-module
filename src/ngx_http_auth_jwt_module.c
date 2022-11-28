@@ -29,6 +29,7 @@ typedef struct {
 	ngx_str_t    auth_jwt_algorithm;
 	ngx_flag_t   auth_jwt_extract_sub;
 	ngx_flag_t   auth_jwt_validate_email;
+	ngx_flag_t   auth_jwt_validate_roles;
 	ngx_str_t    auth_jwt_keyfile_path;
 	ngx_flag_t   auth_jwt_use_keyfile;
 	// Private field for keyfile data
@@ -99,6 +100,13 @@ static ngx_command_t ngx_http_auth_jwt_commands[] = {
 		offsetof(ngx_http_auth_jwt_loc_conf_t, auth_jwt_validate_email),
 		NULL },
 
+    { ngx_string("auth_jwt_validate_roles"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_auth_jwt_loc_conf_t, auth_jwt_validate_roles),
+      NULL },
+
 	{ ngx_string("auth_jwt_keyfile_path"),
 		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
 		ngx_conf_set_str_slot,
@@ -152,6 +160,7 @@ static ngx_int_t ngx_http_auth_jwt_handler(ngx_http_request_t *r)
 {
 	ngx_str_t useridHeaderName = ngx_string("x-userid");
 	ngx_str_t emailHeaderName = ngx_string("x-email");
+	ngx_str_t rolesHeaderName = ngx_string("X-AUTH-roles");
 	char* jwtPtr;
 	char* return_url;
 	ngx_http_auth_jwt_loc_conf_t *jwtcf;
@@ -269,7 +278,7 @@ static ngx_int_t ngx_http_auth_jwt_handler(ngx_http_request_t *r)
 
 	if (jwtcf->auth_jwt_validate_email == 1)
 	{
-		const char* email = jwt_get_grant(jwt, "emailAddress");
+		const char* email = jwt_get_grant(jwt, "email");
 		
 		if (email == NULL)
 		{
@@ -282,6 +291,22 @@ static ngx_int_t ngx_http_auth_jwt_handler(ngx_http_request_t *r)
 			set_custom_header_in_headers_out(r, &emailHeaderName, &email_t);
 		}
 	}
+
+    if (jwtcf->auth_jwt_validate_roles == 1)
+    {
+        const char* roles = jwt_get_grant(jwt, "snowstormRoles");
+
+        if (roles == NULL)
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "the JWT does not contain an roles");
+        }
+        else
+        {
+            ngx_str_t roles_t = ngx_char_ptr_to_str_t(r->pool, (char *)roles);
+
+            set_custom_header_in_headers_out(r, &rolesHeaderName, &roles_t);
+        }
+    }
 
 	jwt_free(jwt);
 	
@@ -411,6 +436,7 @@ ngx_http_auth_jwt_create_loc_conf(ngx_conf_t *cf)
 	conf->auth_jwt_redirect = (ngx_flag_t) -1;
 	conf->auth_jwt_extract_sub = (ngx_flag_t) -1;
 	conf->auth_jwt_validate_email = (ngx_flag_t) -1;
+	conf->auth_jwt_validate_roles = (ngx_flag_t) -1;
 	conf->auth_jwt_use_keyfile = (ngx_flag_t) -1;
 
 	ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "Created Location Configuration");
@@ -473,7 +499,8 @@ ngx_http_auth_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 	ngx_conf_merge_str_value(conf->auth_jwt_keyfile_path, prev->auth_jwt_keyfile_path, "");
 	ngx_conf_merge_off_value(conf->auth_jwt_extract_sub, prev->auth_jwt_extract_sub, 1);
 	ngx_conf_merge_off_value(conf->auth_jwt_validate_email, prev->auth_jwt_validate_email, 1);
-	
+	ngx_conf_merge_off_value(conf->auth_jwt_validate_roles, prev->auth_jwt_validate_roles, 1);
+
 	if (conf->auth_jwt_enabled == ((ngx_flag_t) -1)) 
 	{
 		conf->auth_jwt_enabled = (prev->auth_jwt_enabled == ((ngx_flag_t) -1)) ? 0 : prev->auth_jwt_enabled;
